@@ -1,64 +1,90 @@
-import cv2
 import numpy as np
+from scipy.interpolate import CubicSpline
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib.pyplot as plt
 
-image = cv2.imread('cv_lab_image.jpeg')
+def create_parallelepiped():
+    p = np.array([
+        [0, 0, 0, 1],
+        [1, 0, 0, 1],
+        [1, 1, 0, 1],
+        [0, 1, 0, 1],
+
+        [0, 0, 2, 1],
+        [1, 0, 2, 1],
+        [1, 1, 2, 1],
+        [0, 1, 2, 1]
+    ])
+    
+    return p
+
+def rotate_parallelepiped_around_z(parallelepiped, theta_degrees):
+    theta = np.radians(theta_degrees)
+    
+    rotation_matrix_z = np.array([
+        [np.cos(theta), -np.sin(theta), 0, 0],
+        [np.sin(theta), np.cos(theta), 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ])
+    
+    rotated_parallelepiped = np.dot(parallelepiped, rotation_matrix_z.T)
+    
+    return rotated_parallelepiped
 
 
-def brightness_adjustment(image, value):
-    adjusted_image = np.clip(image.astype(int) + value, 0, 255).astype(np.uint8)
-    return adjusted_image
+def painter_algorithm(faces, vertices):
+    # Calculate the depth of each face as the average of the z-coordinates of its vertices
+    depths = np.array([np.mean([vertices[vert][2] for vert in face]) for face in faces])
+    # Sort the faces by depth
+    sorted_faces_indices = np.argsort(depths)[::-1]  
+    sorted_faces = [faces[i] for i in sorted_faces_indices]
+    return sorted_faces
 
 
-RGB_TO_GRAYSCALE_COEFFICIENTS = np.array([0.2989, 0.5870, 0.1140])
+keyframes = np.array([0, 45, 90, 180, 360])
+angles = np.radians(keyframes)
 
+t = np.linspace(0, 1, len(keyframes))
 
-def grayscale(image):
-    gray_image = np.dot(image[..., :3], RGB_TO_GRAYSCALE_COEFFICIENTS)
-    return np.dstack([gray_image] * 3).astype(np.uint8)
+cs = CubicSpline(t, angles)
 
+def display_rotated_parallelepiped(t_values):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
 
-def negative(image):
-    return 255 - image
+    p = create_parallelepiped()
+    faces_indices = [
+        [0, 1, 2, 3], [4, 5, 6, 7],  
+        [0, 1, 5, 4], [2, 3, 7, 6], 
+        [1, 2, 6, 5], [0, 3, 7, 4]   
+    ]
+    
+    for t_val in t_values:
+        ax.cla()
+        
+        # Interpolate the angle then rotate at this t value
+        theta = cs(t_val)
+        rotated_p = rotate_parallelepiped_around_z(p, np.degrees(theta))
+        
+        vertices = rotated_p[:, :3]  # Ignore the homogeneous coordinate
+        
+        # Sort faces by depth using the Painter's Algorithm
+        sorted_faces_indices = painter_algorithm(faces_indices, vertices)
 
+        colors = ['red', 'green', 'blue', 'yellow', 'cyan', 'magenta']
+        
+        for i, face_indices in enumerate(sorted_faces_indices):
+            face = vertices[face_indices]
+            poly = Poly3DCollection([face], facecolors=colors[i], linewidths=1, edgecolors='k', alpha=0.9)
+            ax.add_collection3d(poly)
+        
+        ax.set_xlim([-2, 2])
+        ax.set_ylim([-2, 2])
+        ax.set_zlim([-2, 2])
+        plt.draw()
+        plt.pause(0.05)
+        
+    plt.show()
 
-SEPIA_FILTER_COEFFICIENTS = np.array([
-    [0.393, 0.769, 0.189],
-    [0.349, 0.686, 0.168],
-    [0.272, 0.534, 0.131]
-])
-
-
-def sepia_gradient(image):
-    sepia_image = np.dot(image, SEPIA_FILTER_COEFFICIENTS.T)
-    height, width = image.shape[:2]
-    X, Y = np.meshgrid(np.arange(width), np.arange(height))
-    distance_from_center = np.sqrt((X - width / 2) ** 2 + (Y - height / 2) ** 2)
-    gradient_to_center = distance_from_center / distance_from_center.max()
-    gradient_from_center = 1 - gradient_to_center
-
-    sepia_gradient_image = sepia_image * gradient_from_center[:, :, np.newaxis] + image * gradient_to_center[:, :, np.newaxis]
-    return sepia_gradient_image.astype(np.uint8)
-
-
-brightened_image = brightness_adjustment(image, 70)
-grayscale_image = grayscale(image)
-negative_image = negative(image)
-sepia_gradient_image = sepia_gradient(image)
-
-def show_image_with_matplotlib(img, title):
-    # Convert BGR image to RGB
-    img_RGB = img[:, :, ::-1]
-    plt.imshow(img_RGB)
-    plt.title(title)
-    plt.axis('off')
-
-plt.figure(figsize=(20, 10))
-
-plt.subplot(151), show_image_with_matplotlib(image, 'Original Image')
-plt.subplot(152), show_image_with_matplotlib(brightened_image, 'Brightened Image')
-plt.subplot(153), show_image_with_matplotlib(grayscale_image, 'Grayscale Image')
-plt.subplot(154), show_image_with_matplotlib(negative_image, 'Negative Image')
-plt.subplot(155), show_image_with_matplotlib(sepia_gradient_image, 'Sepia Gradient Image')
-
-plt.show()
+display_rotated_parallelepiped(np.linspace(0, 1, 1000))
